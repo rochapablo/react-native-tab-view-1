@@ -7,6 +7,9 @@ import TabBarItem from './TabBarItem';
 import TabBarIndicator, {
   type Props as IndicatorProps,
 } from './TabBarIndicator';
+import TabBarIndicatorAuto, {
+  type Props as IndicatorAutoProps,
+} from './TabBarIndicatorAuto';
 import type {
   ViewStyleProp,
   TextStyleProp,
@@ -50,6 +53,7 @@ export type Props<T> = {|
   labelStyle?: TextStyleProp,
   contentContainerStyle?: ViewStyleProp,
   style?: ViewStyleProp,
+  isAutoSizeIndicator?: boolean,
 |};
 
 type State = {|
@@ -93,6 +97,15 @@ export default class TabBar<T: Route> extends React.Component<Props<T>, State> {
       scrollAmount: new Animated.Value(0),
       initialOffset,
     };
+
+    if (!this.indicatorWidth) {
+      this.indicatorWidth = [];
+    }
+
+    for (let i = 0; i < this.props.navigationState.routes.length; i++) {
+      const width = this._calcTabWidthAuto(this.props, this.props.navigationState.routes[i].title);
+      this.indicatorWidth[i] = width;
+    };
   }
 
   componentDidMount() {
@@ -132,6 +145,19 @@ export default class TabBar<T: Route> extends React.Component<Props<T>, State> {
   _isMomentumScroll: boolean = false;
   _scrollResetCallback: AnimationFrameID;
 
+  _calcTabWidthAuto = (props, title) => {
+    const { tabStyle, labelStyle } = props;
+    const flattened = StyleSheet.flatten(tabStyle);
+    const labelStyleFlattened = StyleSheet.flatten(labelStyle);
+
+    const fontSize = labelStyleFlattened.fontSize || 18;
+    const paddingHorizontal = flattened.paddingHorizontal;
+    // const marginHorizontal = flattened.marginHorizontal;
+    // const title = navigationState.routes[navigationState.index].title;
+    const something = (fontSize * title.length) % 100;
+    return (something + (paddingHorizontal * 2));
+  }
+
   _getTabWidth = props => {
     const { layout, navigationState, tabStyle } = props;
     const flattened = StyleSheet.flatten(tabStyle);
@@ -141,7 +167,9 @@ export default class TabBar<T: Route> extends React.Component<Props<T>, State> {
         case 'number':
           return flattened.width;
         case 'string':
-          if (flattened.width.endsWith('%')) {
+          if (flattened.width === 'auto') {
+            return this._calcTabWidthAuto(props, navigationState.routes[navigationState.index].title);
+          } else if (flattened.width.endsWith('%')) {
             const width = parseFloat(flattened.width);
             if (Number.isFinite(width)) {
               return layout.width * (width / 100);
@@ -157,6 +185,25 @@ export default class TabBar<T: Route> extends React.Component<Props<T>, State> {
     return layout.width / navigationState.routes.length;
   };
 
+  _getTabBarWidth = props => {
+    const { navigationState, tabStyle, labelStyle } = props;
+    const flattened = StyleSheet.flatten(tabStyle);
+    const labelStyleFlattened = StyleSheet.flatten(labelStyle);
+
+    if (flattened) {
+      switch (typeof flattened.width) {
+        case 'string':
+          if (flattened.width === 'auto') {
+            const fontSize = labelStyleFlattened.fontSize || 13;
+            const paddingHorizontal = flattened.paddingHorizontal;
+            return navigationState.routes.reduce((total, route) => {
+              return total + (fontSize * route.title.length) + (paddingHorizontal * 2);
+            }, 0);
+          }
+      }
+    }
+  };
+
   _handleTabLongPress = (scene: Scene<T>) => {
     if (this.props.onTabLongPress) {
       this.props.onTabLongPress(scene);
@@ -167,7 +214,7 @@ export default class TabBar<T: Route> extends React.Component<Props<T>, State> {
     const { layout, navigationState } = props;
     const tabWidth = this._getTabWidth(props);
     const tabBarWidth = Math.max(
-      tabWidth * navigationState.routes.length,
+      !this.props.isAutoSizeIndicator ? tabWidth * navigationState.routes.length : this._getTabBarWidth(props),
       layout.width
     );
     const maxDistance = tabBarWidth - layout.width;
@@ -242,6 +289,29 @@ export default class TabBar<T: Route> extends React.Component<Props<T>, State> {
     this._isManualScroll = false;
   };
 
+  /**renderIndicator: (props: IndicatorProps<T>) => (
+      <TabBarIndicator {...props} />
+    ),*/
+
+  _renderAutoWidthIndicator = (props: IndicatorAutoProps<T>) => {
+    /* if (typeof this.props.renderIndicator !== 'undefined') {
+      return this.props.renderIndicator(props);
+    } */
+    /* const { width, navigationState, styles } = props;
+    let translateX=0;
+    for (let i=0; i<navigationState.index ; i++) {
+      translateX= translateX + this.indicatorWidth[i];
+    };
+    return (
+      <Animated.View
+        style={[
+          styles,
+          { width, transform: [{ translateX }] }
+        ]} />
+    ); */
+    return (<TabBarIndicatorAuto {...props} indicatorWidth={this.indicatorWidth} />);
+  };
+
   render() {
     const {
       position,
@@ -273,7 +343,7 @@ export default class TabBar<T: Route> extends React.Component<Props<T>, State> {
     } = this.props;
     const { routes } = navigationState;
     const tabWidth = this._getTabWidth(this.props);
-    const tabBarWidth = tabWidth * routes.length;
+    const tabBarWidth = !this.props.isAutoSizeIndicator ? tabWidth * routes.length : this._getTabBarWidth(this.props);
     const translateX = Animated.multiply(this.state.scrollAmount, -1);
 
     return (
@@ -283,11 +353,12 @@ export default class TabBar<T: Route> extends React.Component<Props<T>, State> {
           style={[
             styles.indicatorContainer,
             scrollEnabled
-              ? { width: tabBarWidth, transform: [{ translateX }] }
+              // ? { width: tabBarWidth, transform: [{ translateX }] }
+              ? { width: this.indicatorWidth[navigationState.index], transform: [{ translateX }] }
               : null,
           ]}
         >
-          {this.props.renderIndicator({
+          {!this.props.isAutoSizeIndicator && this.props.renderIndicator({
             position,
             layout,
             navigationState,
@@ -297,6 +368,17 @@ export default class TabBar<T: Route> extends React.Component<Props<T>, State> {
             width: tabWidth,
             style: indicatorStyle,
           })}
+
+          {this.props.isAutoSizeIndicator && this._renderAutoWidthIndicator({
+              position,
+              layout,
+              navigationState,
+              jumpTo,
+              addListener,
+              removeListener,
+              width: this.indicatorWidth[navigationState.index],
+              style: indicatorStyle,
+            })}
         </Animated.View>
         <View style={styles.scroll}>
           <Animated.ScrollView
